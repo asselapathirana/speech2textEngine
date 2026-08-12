@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import hashlib
 import os
 import secrets
 
@@ -14,6 +15,14 @@ from .models import Claim, DomainError, Job, Recording
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _recording(row) -> Recording:
@@ -49,10 +58,22 @@ def register_recording(config: Config, digest: str, name: str, size: int, path: 
         return _recording(row)
 
 
-def list_jobs(config: Config) -> list[dict]:
+def list_jobs(config: Config, *, job_id: int | None = None, recording_digest: str | None = None) -> list[dict]:
+    clauses = []
+    parameters: list[object] = []
+    if job_id is not None:
+        clauses.append("j.id = ?")
+        parameters.append(job_id)
+    if recording_digest is not None:
+        clauses.append("r.sha256 = ?")
+        parameters.append(recording_digest)
+    where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
     with connect(config) as connection:
         rows = connection.execute(
-            "SELECT j.id, j.recording_id, j.status, j.attempt_count, j.claim_expires_at, j.latest_error_step, j.latest_error, j.created_at, j.updated_at, j.completed_at, r.sha256, r.original_name, r.current_path, r.status AS recording_status FROM jobs j JOIN recordings r ON r.id = j.recording_id ORDER BY j.id"
+            "SELECT j.id, j.recording_id, j.status, j.attempt_count, j.claim_expires_at, j.latest_error_step, j.latest_error, j.created_at, j.updated_at, j.completed_at, r.sha256, r.original_name, r.current_path, r.status AS recording_status FROM jobs j JOIN recordings r ON r.id = j.recording_id"
+            + where
+            + " ORDER BY j.id",
+            parameters,
         ).fetchall()
         results = []
         for row in rows:
@@ -62,6 +83,12 @@ def list_jobs(config: Config) -> list[dict]:
                 (row["id"],),
             ).fetchall()
             item["attempts"] = [dict(attempt) for attempt in attempts]
+            remote = connection.execute(
+                "SELECT re.provider, re.external_job_id, re.state, re.last_reconciled_at, re.diagnostic, re.owner_resolution "
+                "FROM remote_executions re JOIN attempts a ON a.id=re.attempt_id WHERE a.job_id=? ORDER BY re.id DESC LIMIT 1",
+                (row["id"],),
+            ).fetchone()
+            item["remote_execution"] = dict(remote) if remote else None
             results.append(item)
         return results
 
@@ -103,17 +130,61 @@ def renew_claim(config: Config, job_id: int, token: str) -> bool:
     return changed == 1
 
 
+def reclaim_remote_claim(config: Config, job_id: int, attempt_id: int) -> Claim:
+    now = datetime.now(UTC)
+    expires = (now + timedelta(seconds=config.lease_seconds)).isoformat()
+    token = secrets.token_urlsafe(24)
+    with transaction(config, immediate=True) as connection:
+        row = connection.execute(
+            "SELECT j.*, r.sha256, r.original_name, r.size_bytes, r.status AS recording_status, r.current_path "
+            "FROM jobs j JOIN recordings r ON r.id=j.recording_id JOIN attempts a ON a.job_id=j.id "
+            "WHERE j.id=? AND a.id=? AND j.status='processing' AND a.finished_at IS NULL",
+            (job_id, attempt_id),
+        ).fetchone()
+        if row is None:
+            raise DomainError("active remote attempt cannot be reclaimed", step="claim_lost")
+        connection.execute(
+            "UPDATE jobs SET claim_token=?, claim_expires_at=?, updated_at=? WHERE id=?",
+            (token, expires, now.isoformat(), job_id),
+        )
+        connection.execute("UPDATE attempts SET claim_token=? WHERE id=?", (token, attempt_id))
+    job = Job(row["id"], row["recording_id"], "processing", row["attempt_count"], token, expires)
+    recording = Recording(row["recording_id"], row["sha256"], row["original_name"], row["size_bytes"], row["recording_status"], Path(row["current_path"]))
+    return Claim(job, recording, attempt_id, token)
+
+
+def assert_claim_owned(config: Config, claim: Claim) -> None:
+    with connect(config) as connection:
+        owned = connection.execute(
+            "SELECT 1 FROM jobs WHERE id=? AND status='processing' AND claim_token=?",
+            (claim.job.id, claim.token),
+        ).fetchone()
+    if not owned:
+        raise DomainError("claim ownership was lost", step="claim_lost")
+
+
+def processed_path(config: Config, recording: Recording) -> Path:
+    return config.processed_dir / f"{recording.sha256}-{recording.original_name}"
+
+
 def complete_claim(config: Config, claim: Claim, transcript_dir: Path, *, duration_seconds: float | None, peak_gpu_memory_mb: int | None) -> None:
     files = [p for p in transcript_dir.iterdir() if p.suffix in {".json", ".md", ".srt"} and p.stat().st_size > 0] if transcript_dir.is_dir() else []
     if {p.suffix for p in files} != {".json", ".md", ".srt"}:
         raise DomainError("required transcript outputs are missing or empty", step="completion")
-    destination = config.processed_dir / claim.recording.original_name
-    with connect(config) as connection:
-        owned = connection.execute("SELECT 1 FROM jobs WHERE id=? AND status='processing' AND claim_token=?", (claim.job.id, claim.token)).fetchone()
-    if not owned:
-        raise DomainError("claim ownership was lost", step="claim_lost")
-    if claim.recording.current_path.exists() and claim.recording.current_path != destination:
-        os.replace(claim.recording.current_path, destination)
+    destination = processed_path(config, claim.recording)
+    assert_claim_owned(config, claim)
+    source = claim.recording.current_path
+    if destination.exists() and _sha256_file(destination) != claim.recording.sha256:
+        raise DomainError("processed destination contains different content", step="completion")
+    if source.exists() and source != destination:
+        if _sha256_file(source) != claim.recording.sha256:
+            raise DomainError("recording content changed before completion", step="completion")
+        if destination.exists():
+            source.unlink()
+        else:
+            os.replace(source, destination)
+    elif not destination.exists():
+        raise DomainError("recording is missing from incoming and processed storage", step="completion")
     now = utc_now()
     with transaction(config, immediate=True) as connection:
         changed = connection.execute(
@@ -127,6 +198,35 @@ def complete_claim(config: Config, claim: Claim, transcript_dir: Path, *, durati
             "UPDATE attempts SET finished_at=?, outcome='complete', duration_seconds=?, peak_gpu_memory_mb=? WHERE id=? AND claim_token=?",
             (now, duration_seconds, peak_gpu_memory_mb, claim.attempt_id, claim.token),
         )
+
+
+def reconcile_interrupted_completions(config: Config) -> int:
+    now = utc_now()
+    with connect(config) as connection:
+        rows = connection.execute(
+            "SELECT j.*, a.id AS attempt_id, r.sha256, r.original_name, r.size_bytes, r.status AS recording_status, r.current_path "
+            "FROM jobs j JOIN recordings r ON r.id=j.recording_id "
+            "JOIN attempts a ON a.job_id=j.id AND a.claim_token=j.claim_token "
+            "WHERE j.status='processing' AND j.claim_expires_at < ? AND a.finished_at IS NULL",
+            (now,),
+        ).fetchall()
+    reconciled = 0
+    for row in rows:
+        recording = Recording(
+            row["recording_id"], row["sha256"], row["original_name"], row["size_bytes"], row["recording_status"], Path(row["current_path"])
+        )
+        transcript_dir = config.transcripts_dir / recording.sha256
+        if not transcript_dir.is_dir():
+            continue
+        job = Job(row["id"], row["recording_id"], row["status"], row["attempt_count"], row["claim_token"], row["claim_expires_at"])
+        claim = Claim(job, recording, row["attempt_id"], row["claim_token"])
+        try:
+            complete_claim(config, claim, transcript_dir, duration_seconds=None, peak_gpu_memory_mb=None)
+        except DomainError as exc:
+            fail_claim(config, claim, "completion_reconciliation", str(exc))
+        else:
+            reconciled += 1
+    return reconciled
 
 
 def set_cleanup_status(config: Config, attempt_id: int, status: str) -> None:
@@ -153,7 +253,9 @@ def recover_expired_claims(config: Config) -> int:
     now = utc_now()
     with transaction(config, immediate=True) as connection:
         rows = connection.execute(
-            "SELECT id, claim_token FROM jobs WHERE status='processing' AND claim_expires_at < ?",
+            "SELECT j.id, j.claim_token FROM jobs j WHERE j.status='processing' AND j.claim_expires_at < ? "
+            "AND NOT EXISTS (SELECT 1 FROM attempts a JOIN remote_executions re ON re.attempt_id=a.id "
+            "WHERE a.job_id=j.id AND re.state IN ('submitting','queued','running','indeterminate'))",
             (now,),
         ).fetchall()
         for row in rows:
@@ -197,7 +299,7 @@ def quarantine_job(config: Config, job_id: int, reason: str) -> Path:
     if row is None or row["status"] != "failed" or row["recording_status"] != "incoming":
         raise DomainError("only a failed job with an incoming recording can be quarantined", step="quarantine")
     source = Path(row["current_path"])
-    destination = config.failed_dir / row["original_name"]
+    destination = config.failed_dir / f"{row['recording_id']}-{row['original_name']}"
     if destination.exists():
         raise DomainError("quarantine destination already exists", step="quarantine")
     os.replace(source, destination)

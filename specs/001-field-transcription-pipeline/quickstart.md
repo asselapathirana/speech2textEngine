@@ -109,10 +109,14 @@ source digest change or two active jobs exist for the recording.
 See [CLI contract](contracts/cli.md), [data model](data-model.md), and
 [transcript schema](contracts/transcript.schema.json) for precise expected behavior.
 
-## Local validation record (2026-08-11)
+## Local validation record (2026-08-12)
 
-- `/home/assela/python/.venv/bin/python -m unittest discover -s tests -v`:
-  31 tests passed.
+- `/home/assela/python/.venv/bin/python -B -m unittest discover -s tests -v`:
+  48 tests passed, including review regressions for collision-safe source
+  relocation, interrupted-completion reconciliation, large worker diagnostics,
+  claim loss, cleanup failure, retry-to-completion, CLI selectors, and detected
+  language preservation, CLI-level recovery ordering, partial-publication
+  diagnosis, and same-filename quarantine.
 - Python byte-compilation: passed for `field_transcriber/` and `worker/`.
 - Shell syntax: passed for upload, worker entrypoint, local/worker checks, and the
   guarded deployment helper.
@@ -122,6 +126,7 @@ See [CLI contract](contracts/cli.md), [data model](data-model.md), and
   untracked content.
 - Secret-pattern inspection: passed after excluding examples, specifications,
   tests, and the scanner's own regex definition.
-- Docker image build/content inspection and rented-GPU acceptance: not run. They
-  require explicit owner authorization, dependency/image downloads, a reachable
-  GPU worker, and the gated-model token setup described above.
+- Docker image build/content inspection and rented-GPU acceptance: owner-deferred
+  to feature `002-runpod-serverless`, which will provide disposable GPU execution.
+  This is not a passing result and remains required before relying on the pipeline
+  for fieldwork. See `docs/gpu-acceptance.md`.

@@ -88,8 +88,8 @@ The canonical JSON is stored as a file and validated against
 
 ```text
 uploading/<name>.partial  --verify + atomic publish--> incoming/<name>
-incoming/<name>          --verified job completion--> processed/<name>
-incoming/<name>          --owner quarantine--------> failed/<name>
+incoming/<name>          --verified job completion--> processed/<sha256>-<name>
+incoming/<name>          --owner quarantine--------> failed/<recording-id>-<name>
 result staging           --schema/render checks----> transcripts/<digest>/
 ```
 

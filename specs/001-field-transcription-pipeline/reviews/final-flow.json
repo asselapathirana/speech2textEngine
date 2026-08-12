@@ -1,0 +1,31 @@
+{
+  "completed_at": "2026-08-12T16:09:18.355823+00:00",
+  "created_at": "2026-08-11T20:16:00.012730+00:00",
+  "current_stage": "implementation",
+  "max_rounds": 4,
+  "stages": {
+    "implementation": {
+      "iteration": 3,
+      "round_limit": 4,
+      "status": "approved"
+    },
+    "plan": {
+      "iteration": 2,
+      "round_limit": 4,
+      "status": "approved"
+    },
+    "spec": {
+      "iteration": 2,
+      "round_limit": 4,
+      "status": "approved"
+    },
+    "tasks": {
+      "iteration": 2,
+      "round_limit": 4,
+      "status": "approved"
+    }
+  },
+  "state": "complete",
+  "updated_at": "2026-08-12T16:09:18.355866+00:00",
+  "version": 1
+}

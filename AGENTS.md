@@ -61,6 +61,8 @@
 ## Active Technologies
 - Python 3.11 for controller, worker, renderers, and tests; POSIX-compatible Bash for upload/deployment wrappers + VPS controller uses Python standard library only; worker uses stable pinned WhisperX (faster-whisper backend), PyTorch/CUDA dependencies resolved in the image, pyannote `speaker-diarization-community-1`, FFmpeg, Docker, OpenSSH, and rsync (001-field-transcription-pipeline)
 - SQLite 3 for recordings/jobs/attempts plus immutable MP3 and transcript files below `/home/assela/field-transcriber/files/` (001-field-transcription-pipeline)
+- Python 3.11+ controller and worker; POSIX shell wrappers + Controller remains Python standard library only; worker retains WhisperX/PyTorch/pyannote and adds the Runpod worker SDK after explicit owner approval (002-runpod-serverless)
+- Existing SQLite and immutable VPS files; temporary S3-compatible object storage for one-attempt input/result transport (002-runpod-serverless)
 
 ## Recent Changes
 - 001-field-transcription-pipeline: Added Python 3.11 for controller, worker, renderers, and tests; POSIX-compatible Bash for upload/deployment wrappers + VPS controller uses Python standard library only; worker uses stable pinned WhisperX (faster-whisper backend), PyTorch/CUDA dependencies resolved in the image, pyannote `speaker-diarization-community-1`, FFmpeg, Docker, OpenSSH, and rsync

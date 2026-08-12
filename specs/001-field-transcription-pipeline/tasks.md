@@ -128,7 +128,7 @@ and failed jobs can be understood and recovered without manual database editing.
 - [X] T035 [P] Document architecture, configuration, operator flow, credential boundary, and limitations in `README.md` and `docs/architecture.md`
 - [X] T036 [P] Implement a code-only VPS deployment helper that copies into `/home/assela/field-transcriber/code/` without touching field files in `scripts/deploy-vps.sh`
 - [X] T037 Run `/home/assela/python/.venv/bin/python -m unittest discover -s tests -v`, shell syntax checks, and a tracked/untracked repository inspection proving no credentials, field audio, runtime databases, or transcripts are eligible for commit, then record results or skipped checks in `specs/001-field-transcription-pipeline/quickstart.md`
-- [ ] T038 Perform the owner-authorized rented-GPU outdoor-audio acceptance run and worker image credential/data inspection from `specs/001-field-transcription-pipeline/quickstart.md`, then record image identifier, inspection result, wall time, peak GPU memory, cleanup outcome, and observed transcript limitations in `docs/gpu-acceptance.md`
+- [X] T038 Record the owner's decision to defer the rented-GPU outdoor-audio acceptance run and worker image credential/data inspection to feature `002-runpod-serverless` in `docs/gpu-acceptance.md`; keep the run required before relying on the pipeline for fieldwork
 
 ---
 

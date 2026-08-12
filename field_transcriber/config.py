@@ -22,6 +22,20 @@ KNOWN_KEYS = {
     "HEARTBEAT_SECONDS",
     "HF_TOKEN_ENV",
     "PYTHON",
+    "WORKER_MODE",
+    "RUNPOD_ENDPOINT_ID",
+    "RUNPOD_API_KEY_ENV",
+    "REMOTE_EXECUTION_TIMEOUT_MS",
+    "REMOTE_TTL_MS",
+    "REMOTE_POLL_SECONDS",
+    "REMOTE_RESOLUTION_SECONDS",
+    "TRANSFER_RETENTION_SECONDS",
+    "OBJECT_STORE_ENDPOINT",
+    "OBJECT_STORE_BUCKET",
+    "OBJECT_STORE_REGION",
+    "OBJECT_STORE_ACCESS_KEY_ENV",
+    "OBJECT_STORE_SECRET_KEY_ENV",
+    "OBJECT_URL_TTL_SECONDS",
 }
 
 
@@ -36,6 +50,20 @@ class Config:
     heartbeat_seconds: int = 60
     hf_token_env: str = "HF_TOKEN"
     python_command: str = "python3"
+    worker_mode: str = "ssh"
+    runpod_endpoint_id: str = ""
+    runpod_api_key_env: str = "RUNPOD_API_KEY"
+    remote_execution_timeout_ms: int = 7_200_000
+    remote_ttl_ms: int = 10_800_000
+    remote_poll_seconds: int = 10
+    remote_resolution_seconds: int = 1800
+    transfer_retention_seconds: int = 86400
+    object_store_endpoint: str = ""
+    object_store_bucket: str = ""
+    object_store_region: str = "us-east-1"
+    object_store_access_key_env: str = "S3_ACCESS_KEY_ID"
+    object_store_secret_key_env: str = "S3_SECRET_ACCESS_KEY"
+    object_url_ttl_seconds: int = 10800
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "root", Path(self.root).expanduser())
@@ -45,6 +73,26 @@ class Config:
             raise ConfigError("lease and heartbeat values must be positive")
         if self.heartbeat_seconds >= self.lease_seconds:
             raise ConfigError("heartbeat must be shorter than the claim lease")
+        if self.worker_mode not in {"ssh", "runpod"}:
+            raise ConfigError("worker mode must be ssh or runpod")
+        positive = (
+            self.remote_execution_timeout_ms,
+            self.remote_ttl_ms,
+            self.remote_poll_seconds,
+            self.remote_resolution_seconds,
+            self.transfer_retention_seconds,
+            self.object_url_ttl_seconds,
+        )
+        if any(value <= 0 for value in positive):
+            raise ConfigError("remote timing values must be positive")
+        if self.remote_ttl_ms <= self.remote_execution_timeout_ms:
+            raise ConfigError("remote TTL must be greater than execution timeout")
+        if self.worker_mode == "runpod":
+            required = (self.runpod_endpoint_id, self.object_store_endpoint, self.object_store_bucket)
+            if not all(required):
+                raise ConfigError("runpod mode requires endpoint ID and object-store settings")
+            if not self.object_store_endpoint.startswith("https://") and not self.object_store_endpoint.startswith("http://localhost"):
+                raise ConfigError("object-store endpoint must use HTTPS")
 
     @property
     def uploading_dir(self) -> Path:
@@ -115,6 +163,20 @@ def load_config(path: Path | str | None = None) -> Config:
             heartbeat_seconds=int(values.get(PREFIX + "HEARTBEAT_SECONDS", "60")),
             hf_token_env=values.get(PREFIX + "HF_TOKEN_ENV", "HF_TOKEN"),
             python_command=values.get(PREFIX + "PYTHON", "python3"),
+            worker_mode=values.get(PREFIX + "WORKER_MODE", "ssh"),
+            runpod_endpoint_id=values.get(PREFIX + "RUNPOD_ENDPOINT_ID", ""),
+            runpod_api_key_env=values.get(PREFIX + "RUNPOD_API_KEY_ENV", "RUNPOD_API_KEY"),
+            remote_execution_timeout_ms=int(values.get(PREFIX + "REMOTE_EXECUTION_TIMEOUT_MS", "7200000")),
+            remote_ttl_ms=int(values.get(PREFIX + "REMOTE_TTL_MS", "10800000")),
+            remote_poll_seconds=int(values.get(PREFIX + "REMOTE_POLL_SECONDS", "10")),
+            remote_resolution_seconds=int(values.get(PREFIX + "REMOTE_RESOLUTION_SECONDS", "1800")),
+            transfer_retention_seconds=int(values.get(PREFIX + "TRANSFER_RETENTION_SECONDS", "86400")),
+            object_store_endpoint=values.get(PREFIX + "OBJECT_STORE_ENDPOINT", ""),
+            object_store_bucket=values.get(PREFIX + "OBJECT_STORE_BUCKET", ""),
+            object_store_region=values.get(PREFIX + "OBJECT_STORE_REGION", "us-east-1"),
+            object_store_access_key_env=values.get(PREFIX + "OBJECT_STORE_ACCESS_KEY_ENV", "S3_ACCESS_KEY_ID"),
+            object_store_secret_key_env=values.get(PREFIX + "OBJECT_STORE_SECRET_KEY_ENV", "S3_SECRET_ACCESS_KEY"),
+            object_url_ttl_seconds=int(values.get(PREFIX + "OBJECT_URL_TTL_SECONDS", "10800")),
         )
     except ValueError as exc:
         if isinstance(exc, ConfigError):

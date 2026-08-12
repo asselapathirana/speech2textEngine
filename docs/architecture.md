@@ -62,3 +62,17 @@ pyannote telemetry is disabled.
 The image contains code and dependencies only. `scripts/test-worker.sh` requires an
 explicit build opt-in and inspects image history and files for likely secrets or
 field data before its GPU smoke check.
+# Disposable remote execution
+
+The VPS remains authoritative for recordings, attempts, transcript validation,
+rendering, and completion. `remote_executions` stores one provider identity per
+attempt; `transfer_objects` stores only object keys and cleanup state. Signed URLs
+and credentials are never durable. Reconciliation probes the result object before
+provider status, reclaims the same local attempt for queued/running work, and
+blocks automatic resubmission when acceptance is indeterminate.
+
+`field_transcriber.remote` defines the provider-neutral contract.
+`field_transcriber.runpod_provider` contains all Runpod HTTP and state mapping.
+`field_transcriber.object_store` implements standard-library SigV4 transfer.
+`worker.serverless` is a thin queue handler around `worker.transcribe.transcribe`;
+its Runpod SDK import is deferred to startup so local tests need no SDK install.

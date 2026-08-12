@@ -1,1 +1,2 @@
 whisperx==3.8.6
+runpod==1.7.13

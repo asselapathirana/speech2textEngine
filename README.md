@@ -102,3 +102,17 @@ pyannote model. This repository does not install host packages or rent a worker.
   completed transcript.
 - Worker cleanup is best-effort; disposable nodes should still be destroyed by the
   owner after the rental session.
+# Serverless Runpod mode
+
+Set `FIELD_TRANSCRIBER_WORKER_MODE=runpod` to use queue-based disposable GPU
+execution. Configure the endpoint and S3-compatible transient bucket using
+`config.example.env`; configuration stores only the names of runtime secret
+environment variables. `run-next` uploads one attempt-qualified input, submits an
+asynchronous job, polls through the provider-neutral lifecycle, validates and
+publishes JSON/Markdown/SRT locally, and deletes transient objects. The default
+execution timeout is two hours and TTL is three hours; both are configurable.
+
+Operational recovery commands are `cancel --job ID`, `resolve-remote --job ID
+--decision wait|abandon-retry`, and `cleanup-transfers`. Select `ssh` mode to use
+the previous worker path during migration or provider outages. A real Runpod run
+requires separate authorization because it incurs charges and transfers audio.

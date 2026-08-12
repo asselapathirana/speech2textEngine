@@ -21,6 +21,7 @@ class DatabaseTests(unittest.TestCase):
                     )
                 }
                 self.assertTrue({"recordings", "jobs", "attempts"} <= tables)
+                self.assertTrue({"remote_executions", "transfer_objects"} <= tables)
                 columns = {
                     row[1] for row in connection.execute("PRAGMA table_info(jobs)")
                 }

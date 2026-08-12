@@ -37,6 +37,9 @@ class UploadScriptTests(unittest.TestCase):
             self.assertIn("uploading/sample.mp3.partial", calls)
             self.assertIn("publish-upload", calls)
             self.assertIn("--sha256", calls)
+            repeated = subprocess.run(["sh", "local/upload.sh", str(source)], cwd=Path(__file__).parents[1], env=env, text=True, capture_output=True)
+            self.assertEqual(repeated.returncode, 0, repeated.stderr)
+            self.assertEqual(log.read_text().count("publish-upload"), 2)
 
 
 if __name__ == "__main__":

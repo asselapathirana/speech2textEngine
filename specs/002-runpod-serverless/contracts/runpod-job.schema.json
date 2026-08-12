@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Field Transcriber Runpod Job",
+  "type": "object",
+  "required": ["input", "policy"],
+  "additionalProperties": false,
+  "properties": {
+    "input": {
+      "type": "object",
+      "required": ["idempotency_key", "recording_sha256", "original_name", "input_url", "result_url"],
+      "additionalProperties": false,
+      "properties": {
+        "idempotency_key": {"type": "string", "minLength": 20},
+        "recording_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "original_name": {"type": "string", "minLength": 1},
+        "input_url": {"type": "string", "format": "uri"},
+        "result_url": {"type": "string", "format": "uri"}
+      }
+    },
+    "policy": {
+      "type": "object",
+      "required": ["executionTimeout", "ttl"],
+      "additionalProperties": false,
+      "properties": {
+        "executionTimeout": {"type": "integer", "minimum": 5000},
+        "ttl": {"type": "integer", "minimum": 10000}
+      }
+    }
+  }
+}

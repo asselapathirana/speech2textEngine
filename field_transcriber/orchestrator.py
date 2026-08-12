@@ -12,10 +12,25 @@ from typing import Callable
 
 from .commands import CommandRunner, require_success, scrub
 from .config import Config
-from .jobs import claim_next, complete_claim, fail_claim, recover_expired_claims, renew_claim, set_cleanup_status
+from .jobs import assert_claim_owned, claim_next, complete_claim, fail_claim, reconcile_interrupted_completions, recover_expired_claims, renew_claim, set_cleanup_status
 from .models import Claim, DomainError
 from .renderers import publish_transcripts
 from .transcript import validate_transcript
+
+
+def _remote_dependencies(config: Config):
+    from .object_store import ObjectStore
+    from .runpod_provider import RunpodProvider
+
+    api_key = os.environ.get(config.runpod_api_key_env, "")
+    access_key = os.environ.get(config.object_store_access_key_env, "")
+    secret_key = os.environ.get(config.object_store_secret_key_env, "")
+    if not api_key or not access_key or not secret_key:
+        raise DomainError("runpod and object-store runtime credentials are required", step="configuration")
+    return (
+        RunpodProvider(config.runpod_endpoint_id, api_key),
+        ObjectStore(config.object_store_endpoint, config.object_store_bucket, config.object_store_region, access_key, secret_key),
+    )
 
 
 def _target(config: Config) -> str:
@@ -35,8 +50,23 @@ def _cleanup(config: Config, claim: Claim, runner: CommandRunner) -> bool:
     return result.ok
 
 
-def run_next(config: Config, *, runner: CommandRunner | None = None, sleep: Callable[[float], None] = time.sleep) -> dict:
+def publish_result(config: Config, claim: Claim, document: dict) -> Path:
+    validate_transcript(document, claim.recording.sha256)
+    assert_claim_owned(config, claim)
+    return publish_transcripts(document, config.transcripts_dir, claim.recording.sha256)[0].parent
+
+
+def run_next(config: Config, *, runner: CommandRunner | None = None, sleep: Callable[[float], None] = time.sleep, provider=None, store=None) -> dict:
+    if config.worker_mode == "runpod":
+        from .remote import cleanup_transfers, submit_next
+
+        if provider is None or store is None:
+            provider, store = _remote_dependencies(config)
+        cleanup_transfers(config, store)
+        recover_expired_claims(config)
+        return submit_next(config, provider, store, sleep=sleep)
     runner = runner or CommandRunner()
+    reconcile_interrupted_completions(config)
     recover_expired_claims(config)
     claim = claim_next(config)
     if claim is None:
@@ -75,9 +105,7 @@ def run_next(config: Config, *, runner: CommandRunner | None = None, sleep: Call
                 document = json.loads(staged.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError) as exc:
                 raise DomainError(f"invalid result JSON: {exc}", step="result_validation") from exc
-            validate_transcript(document, claim.recording.sha256)
-            published = publish_transcripts(document, config.transcripts_dir, claim.recording.sha256)
-            transcript_dir = published[0].parent
+            transcript_dir = publish_result(config, claim, document)
             run = document.get("run", {})
             complete_claim(
                 config,
@@ -91,3 +119,7 @@ def run_next(config: Config, *, runner: CommandRunner | None = None, sleep: Call
     except DomainError as exc:
         fail_claim(config, claim, exc.step, scrub(str(exc), (token,)))
         raise
+    except Exception as exc:
+        detail = scrub(f"{type(exc).__name__}: {exc}", (token,))
+        fail_claim(config, claim, "controller_unexpected", detail)
+        raise DomainError(detail, step="controller_unexpected") from exc

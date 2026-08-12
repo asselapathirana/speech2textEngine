@@ -39,6 +39,20 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ConfigError):
                 load_config(path)
 
+    def test_runpod_mode_requires_safe_transfer_configuration(self):
+        with self.assertRaises(ConfigError):
+            Config(root=Path("/tmp/field-test"), worker_mode="runpod")
+        config = Config(
+            root=Path("/tmp/field-test"), worker_mode="runpod", runpod_endpoint_id="endpoint",
+            object_store_endpoint="https://objects.example", object_store_bucket="transient",
+        )
+        self.assertEqual(config.remote_execution_timeout_ms, 7_200_000)
+        self.assertEqual(config.remote_ttl_ms, 10_800_000)
+
+    def test_remote_ttl_must_exceed_execution_timeout(self):
+        with self.assertRaises(ConfigError):
+            Config(root=Path("/tmp/field-test"), remote_execution_timeout_ms=10_000, remote_ttl_ms=10_000)
+
 
 if __name__ == "__main__":
     unittest.main()

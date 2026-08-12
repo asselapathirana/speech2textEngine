@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-def normalize_result(raw: dict[str, Any], digest: str, original_name: str, *, duration_seconds: float, peak_gpu_memory_mb: int | None) -> dict[str, Any]:
+def normalize_result(raw: dict[str, Any], digest: str, original_name: str, *, language_code: str, language_confidence: float | None, duration_seconds: float, peak_gpu_memory_mb: int | None) -> dict[str, Any]:
     segments = []
     for segment in raw.get("segments", []):
         words = []
@@ -32,7 +32,7 @@ def normalize_result(raw: dict[str, Any], digest: str, original_name: str, *, du
     return {
         "schema_version": "1.0",
         "recording": {"sha256": digest, "original_name": original_name},
-        "language": {"code": raw.get("language", "und"), "confidence": raw.get("language_probability")},
+        "language": {"code": language_code, "confidence": language_confidence},
         "segments": segments,
         "run": {
             "model": "large-v3",
@@ -53,14 +53,16 @@ def transcribe(input_path: Path, original_name: str, digest: str, token: str) ->
     torch.cuda.reset_peak_memory_stats()
     audio = whisperx.load_audio(str(input_path))
     model = whisperx.load_model("large-v3", "cuda", compute_type="float16")
-    result = model.transcribe(audio, batch_size=8)
-    align_model, metadata = whisperx.load_align_model(language_code=result["language"], device="cuda")
-    result = whisperx.align(result["segments"], align_model, metadata, audio, "cuda", return_char_alignments=False)
+    transcription = model.transcribe(audio, batch_size=8)
+    language_code = transcription["language"]
+    language_confidence = transcription.get("language_probability")
+    align_model, metadata = whisperx.load_align_model(language_code=language_code, device="cuda")
+    result = whisperx.align(transcription["segments"], align_model, metadata, audio, "cuda", return_char_alignments=False)
     diarizer = DiarizationPipeline(token=token, device="cuda", model_name="pyannote/speaker-diarization-community-1")
     diarization = diarizer(audio)
     result = whisperx.assign_word_speakers(diarization, result)
     peak = round(torch.cuda.max_memory_allocated() / (1024 * 1024))
-    return normalize_result(result, digest, original_name, duration_seconds=time.monotonic() - started, peak_gpu_memory_mb=peak)
+    return normalize_result(result, digest, original_name, language_code=language_code, language_confidence=language_confidence, duration_seconds=time.monotonic() - started, peak_gpu_memory_mb=peak)
 
 
 def main(argv=None) -> int:

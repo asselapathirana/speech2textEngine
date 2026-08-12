@@ -43,9 +43,24 @@ class RecoveryTests(unittest.TestCase):
             connection.execute("UPDATE jobs SET status='failed', claim_token=NULL, claim_expires_at=NULL WHERE id=?", (new_claim.job.id,))
             connection.commit()
         quarantine_job(self.config, new_claim.job.id, "not useful")
-        self.assertTrue((self.config.failed_dir / "sample.mp3").exists())
+        self.assertTrue((self.config.failed_dir / f"{new_claim.recording.id}-sample.mp3").exists())
         with self.assertRaises(DomainError):
             retry_job(self.config, new_claim.job.id)
+
+    def test_same_filename_recordings_can_both_be_quarantined(self):
+        first = claim_next(self.config)
+        with connect(self.config) as connection:
+            connection.execute("UPDATE jobs SET status='failed', claim_token=NULL, claim_expires_at=NULL WHERE id=?", (first.job.id,))
+        first_path = quarantine_job(self.config, first.job.id, "first")
+        (self.config.incoming_dir / "sample.mp3").write_bytes(b"different")
+        discover(self.config)
+        second = claim_next(self.config)
+        with connect(self.config) as connection:
+            connection.execute("UPDATE jobs SET status='failed', claim_token=NULL, claim_expires_at=NULL WHERE id=?", (second.job.id,))
+        second_path = quarantine_job(self.config, second.job.id, "second")
+        self.assertNotEqual(first_path, second_path)
+        self.assertEqual(first_path.read_bytes(), b"audio")
+        self.assertEqual(second_path.read_bytes(), b"different")
 
 
 if __name__ == "__main__":
