@@ -16,3 +16,4 @@ COPY worker/ /app/worker/
 RUN chmod 0755 /app/worker/entrypoint.sh
 
 ENTRYPOINT ["/app/worker/entrypoint.sh"]
+CMD ["serverless"]
