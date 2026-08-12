@@ -1,0 +1,152 @@
+# Field Audio Transcription Pipeline — Short Specification
+
+## Goal
+
+Automatically convert field recordings from an **Olympus WS-852 (MP3 128 kbps)** into accurate, timestamped, speaker-diarized transcripts using a temporary rented NVIDIA GPU.
+
+## Architecture
+
+```text
+WS-852
+  ↓
+Laptop / WSL2
+  ↓ rsync over SSH (resumable)
+VPS — permanent storage + controller
+  ↓ SSH/SCP
+Temporary GPU worker
+  ↓
+VPS — results
+```
+
+The **VPS controls the GPU**. The GPU must not require credentials giving access back to the VPS.
+
+## Input
+
+Original Olympus MP3 files.
+
+Do **not** routinely normalize, denoise or convert audio before transcription. Preserve the original MP3 unchanged.
+
+## VPS
+
+Maintain:
+
+```text
+/data/field-audio/incoming/
+/data/field-audio/processed/
+/data/field-audio/failed/
+/data/transcripts/
+```
+
+Use a lightweight **SQLite job queue** tracking file, status, attempts, timestamps and errors.
+
+Avoid unnecessary infrastructure such as Celery, Redis or Kubernetes.
+
+## GPU Worker
+
+Dockerized, stateless worker suitable for disposable NVIDIA GPU instances.
+
+Target hardware: **RTX A5000 24 GB or equivalent**.
+
+Use:
+
+* `faster-whisper`
+* Whisper `large-v3`
+* FP16 GPU inference
+* VAD
+* word-level timestamps
+* WhisperX / pyannote for speaker diarization
+
+The Docker image may be public but must contain **no credentials or project data**.
+
+## Processing
+
+For each pending recording:
+
+```text
+VPS selects job
+→ copy MP3 to GPU
+→ run transcription
+→ align timestamps
+→ speaker diarization
+→ copy results to VPS
+→ verify successful transfer
+→ mark job complete
+→ delete temporary GPU files
+```
+
+Failed jobs remain available for retry.
+
+## Outputs
+
+For each `recording.mp3`, produce:
+
+```text
+recording.json    # authoritative structured transcript
+recording.md      # readable speaker-labelled transcript
+recording.srt     # timestamped playback/subtitles
+```
+
+JSON should preserve at minimum:
+
+* segment start/end
+* speaker ID
+* text
+* word timestamps
+* detected language
+* available confidence/probability information
+
+Speaker labels may initially be `SPEAKER_01`, `SPEAKER_02`, etc.
+
+## Optional Analysis
+
+Keep transcription separate from interpretation.
+
+A subsequent LLM step may generate:
+
+* key field observations
+* facts/statements requiring verification
+* follow-up actions
+* important timestamped quotations
+
+Never overwrite the original transcript with LLM-edited text.
+
+## Reliability
+
+* Original MP3 remains unchanged on VPS.
+* Laptop retains a field backup.
+* Upload from laptop uses resumable transfer (`rsync --partial`).
+* Processing must be restartable/idempotent.
+* GPU nodes are disposable.
+* Test end-to-end before deployment using outdoor audio containing wind, walking, distant speakers, multiple speakers and overlapping speech.
+
+
+
+
+field-transcriber/
+├── README.md
+├── docs/
+│   └── architecture.md
+│
+├── local/
+│   ├── upload.sh
+│   └── config.example.env
+│
+├── vps/
+│   ├── controller/
+│   ├── jobs.db.schema.sql
+│   ├── systemd/
+│   └── config.example.env
+│
+├── worker/
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── transcribe.py
+│   ├── diarize.py
+│   └── entrypoint.sh
+│
+├── scripts/
+│   ├── deploy-vps.sh
+│   ├── test-local.sh
+│   └── test-worker.sh
+│
+└── tests/

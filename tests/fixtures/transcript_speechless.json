@@ -1,0 +1,14 @@
+{
+  "schema_version": "1.0",
+  "recording": {
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "original_name": "silent.mp3"
+  },
+  "language": {"code": "und", "confidence": null},
+  "segments": [],
+  "run": {
+    "model": "large-v3",
+    "compute_type": "float16",
+    "created_at": "2026-08-11T20:00:00Z"
+  }
+}

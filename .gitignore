@@ -1,0 +1,47 @@
+.ai-flow/
+
+# Field data and generated results
+*.mp3
+*.wav
+*.m4a
+transcripts/
+files/
+downloads/
+*.srt
+
+# Runtime configuration and secrets (retain examples)
+*.env
+config.env
+!*.example.env
+!**/*.example.env
+
+# Controller/runtime state
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+state/
+model-cache/
+.cache/
+
+# Python and test output
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+.pytest_cache/
+tests/tmp/
+tmp/
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
