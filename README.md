@@ -64,9 +64,19 @@ For the normal laptop workflow, copy `local/config.example.env` to the untracked
 `local/config.env` once, then run one command:
 
 ```bash
-local/transcribe.py /path/to/recording.mp3
-local/transcribe.py '/path/to/recordings/*.mp3'
+transcribe /path/to/recording.mp3
+transcribe '/path/to/recordings/*.mp3'
 ```
+
+Install the global command once from the repository root:
+
+```bash
+sudo install -o root -g root -m 0755 local/transcribe-command /usr/local/bin/transcribe
+```
+
+The installed launcher calls `local/transcribe.py` in this repository, so keep
+the repository at `/mnt/e/learn/speech2text`. You can also invoke that script
+directly without installing the launcher.
 
 The command accepts any MP3 path and one or more wildcard patterns. Quote a
 pattern so the script expands it consistently. It processes matches sequentially
