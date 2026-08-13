@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /mnt/e/learn/speech2text/local/transcribe.py "$@"
