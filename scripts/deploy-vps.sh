@@ -20,6 +20,7 @@ rsync -az --delete-delay \
     --exclude '*.env' \
     --exclude 'config.env' \
     --exclude '*.mp3' \
+    --exclude '*.mp4' \
     --exclude '*.wav' \
     --exclude '*.db*' \
     --exclude 'files/' \

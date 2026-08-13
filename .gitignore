@@ -2,6 +2,7 @@
 
 # Field data and generated results
 *.mp3
+*.mp4
 *.wav
 *.m4a
 transcripts/

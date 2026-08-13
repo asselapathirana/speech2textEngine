@@ -5,6 +5,7 @@ specs/
 tests/
 260811_0111.MP3
 *.mp3
+*.mp4
 *.wav
 *.m4a
 *.env

@@ -10,7 +10,7 @@ from field_transcriber.orchestrator import run_next
 from field_transcriber.recordings import discover
 from field_transcriber.remote import RemoteStatus
 from field_transcriber.remote import cancel_remote, cleanup_transfers, resolve_remote
-from field_transcriber.jobs import claim_next
+from field_transcriber.jobs import claim_next, retry_job
 from datetime import UTC, datetime, timedelta
 
 
@@ -70,14 +70,34 @@ class RemoteLifecycleTests(unittest.TestCase):
         self.assertEqual(result["result"], "remote_active")
         self.assertEqual(len(self.provider.submissions), 1)
 
-    def test_succeeded_status_without_result_is_retryable_failure(self):
+    def test_succeeded_status_waits_for_eventually_visible_result(self):
         run_next(self.config, provider=self.provider, store=self.store, sleep=None)
         self.provider.next_status = RemoteStatus("succeeded", "remote-1")
         result = run_next(self.config, provider=self.provider, store=self.store, sleep=None)
-        self.assertEqual(result["result"], "failed")
+        self.assertEqual(result["result"], "remote_active")
         with connect(self.config) as connection:
             row = connection.execute("SELECT status, latest_error_step FROM jobs").fetchone()
-        self.assertEqual(tuple(row), ("failed", "result_expired"))
+        self.assertEqual(tuple(row), ("processing", None))
+
+    def test_retry_ignores_historical_failed_remote_execution(self):
+        run_next(self.config, provider=self.provider, store=self.store, sleep=None)
+        self.provider.next_status = RemoteStatus("failed", "remote-1", "first attempt failed")
+        self.assertEqual(run_next(self.config, provider=self.provider, store=self.store, sleep=None)["result"], "failed")
+        with connect(self.config) as connection:
+            job_id = connection.execute("SELECT id FROM jobs").fetchone()[0]
+        retry_job(self.config, job_id)
+        self.provider.next_status = RemoteStatus("queued", "remote-2")
+        self.provider.submit = lambda request: (self.provider.submissions.append(request) or RemoteStatus("queued", "remote-2"))
+        submitted = run_next(self.config, provider=self.provider, store=self.store, sleep=None)
+        self.assertEqual(submitted.get("external_job_id"), "remote-2", submitted)
+        with connect(self.config) as connection:
+            digest = connection.execute("SELECT sha256 FROM recordings").fetchone()[0]
+            key = connection.execute("SELECT result_reference FROM remote_executions ORDER BY id DESC").fetchone()[0]
+        document = json.loads((Path(__file__).parent / "fixtures" / "transcript_valid.json").read_text())
+        document["recording"]["sha256"] = digest
+        self.store.objects[key] = json.dumps(document).encode()
+        self.provider.next_status = RemoteStatus("succeeded", "remote-2")
+        self.assertEqual(run_next(self.config, provider=self.provider, store=self.store, sleep=None)["result"], "complete")
 
     def test_owner_can_abandon_indeterminate_after_deadline(self):
         self.provider.submit = lambda request: RemoteStatus("indeterminate")
@@ -117,6 +137,7 @@ class RemoteLifecycleTests(unittest.TestCase):
             connection.execute("UPDATE transfer_objects SET retain_until='2000-01-01T00:00:00+00:00'")
         cleanup_transfers(self.config, self.store)
         self.assertFalse(self.store.objects)
+        self.assertEqual(cleanup_transfers(self.config, self.store), [])
 
     def test_transient_result_probe_error_records_diagnostic_and_keeps_active(self):
         run_next(self.config, provider=self.provider, store=self.store, sleep=None)

@@ -72,7 +72,8 @@ def _execution_rows(config: Config, job_id: int | None = None):
             "SELECT re.*, a.job_id, a.id AS attempt_id, j.recording_id, j.attempt_count, j.claim_token, j.claim_expires_at, "
             "r.sha256, r.original_name, r.size_bytes, r.status AS recording_status, r.current_path "
             "FROM remote_executions re JOIN attempts a ON a.id=re.attempt_id JOIN jobs j ON j.id=a.job_id "
-            "JOIN recordings r ON r.id=j.recording_id WHERE j.status='processing' AND re.state!='abandoned'" + where,
+            "JOIN recordings r ON r.id=j.recording_id WHERE j.status='processing' AND re.state!='abandoned' "
+            "AND a.finished_at IS NULL AND a.claim_token=j.claim_token" + where,
             parameters,
         ).fetchall()
 
@@ -150,9 +151,10 @@ def reconcile(config: Config, provider: Provider, store: ObjectStore, *, job_id:
                 _set_remote(config, row["id"], RemoteStatus("indeterminate", row["external_job_id"], probe_error))
                 outcomes.append({"result": "indeterminate", "job_id": claim.job.id, "remote_state": "indeterminate"})
             else:
-                _retain_transfers(config, row["id"])
-                fail_claim(config, claim, "result_expired", "remote job succeeded but its result object is unavailable")
-                outcomes.append({"result": "failed", "job_id": claim.job.id, "remote_state": "succeeded"})
+                # Object stores can briefly lag the provider's terminal status. Keep
+                # the same attempt alive and let result-first reconciliation retry.
+                claim = reclaim_remote_claim(config, row["job_id"], row["attempt_id"])
+                outcomes.append({"result": "remote_active", "job_id": claim.job.id, "provider": row["provider"], "external_job_id": status.external_job_id, "remote_state": "succeeded"})
         else:
             outcomes.append({"result": "indeterminate", "job_id": claim.job.id, "remote_state": "indeterminate"})
     return outcomes
@@ -211,7 +213,11 @@ def submit_next(config: Config, provider: Provider, store: ObjectStore, *, sleep
 def cleanup_transfers(config: Config, store: ObjectStore) -> list[dict]:
     now = utc_now()
     with connect(config) as connection:
-        rows = connection.execute("SELECT id, object_key FROM transfer_objects WHERE state='cleanup_failed' OR (retain_until IS NOT NULL AND retain_until<=?)", (now,)).fetchall()
+        rows = connection.execute(
+            "SELECT id, object_key FROM transfer_objects WHERE state='cleanup_failed' "
+            "OR (state!='deleted' AND retain_until IS NOT NULL AND retain_until<=?)",
+            (now,),
+        ).fetchall()
     outcomes = []
     for row in rows:
         try:
