@@ -13,6 +13,7 @@ config.env
 *.db
 *.sqlite*
 transcripts/
+transcriptions/
 files/
 __pycache__/
 *.pyc

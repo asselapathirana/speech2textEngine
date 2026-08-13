@@ -60,6 +60,25 @@ sh -n local/upload.sh worker/entrypoint.sh scripts/test-local.sh scripts/test-wo
 
 ## Configuration and operation
 
+For the normal laptop workflow, copy `local/config.example.env` to the untracked
+`local/config.env` once, then run one command:
+
+```bash
+local/transcribe.py /path/to/recording.mp3
+local/transcribe.py '/path/to/recordings/*.mp3'
+```
+
+The command accepts any MP3 path and one or more wildcard patterns. Quote a
+pattern so the script expands it consistently. It processes matches sequentially
+and saves `<name>.transcript.json`, `<name>.transcript.md`, and
+`<name>.transcript.srt` beside each original MP3. It submits or resumes each
+Runpod job and prints state changes while waiting. The terminal must remain open
+while the VPS controller is running. Re-running the command is safe and downloads
+an already completed result without starting another GPU job. Spaces and other
+unsafe characters are sanitized only in the remote copy; the original is unchanged.
+
+The individual operating steps remain available for diagnosis:
+
 1. Copy `config.example.env` to an untracked `config.env` on the VPS and edit the
    worker connection values.
 2. Copy `local/config.example.env` to untracked `local/config.env` on the laptop.

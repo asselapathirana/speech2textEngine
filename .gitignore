@@ -6,6 +6,7 @@
 *.wav
 *.m4a
 transcripts/
+transcriptions/
 files/
 downloads/
 *.srt
